@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<classpath>
+  <classpathentry kind="src" path="src"/>
+  <classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER"/>
+  
+  <!-- ✅ YE DO LINES JAR FILES KO ADD KARTI HAIN -->
+  <classpathentry kind="lib" path="lib/jfreechart-1.5.4.jar"/>
+  <classpathentry kind="lib" path="lib/jcommon-1.0.24.jar"/>
+  
+  <classpathentry kind="output" path="bin"/>
+</classpath>
