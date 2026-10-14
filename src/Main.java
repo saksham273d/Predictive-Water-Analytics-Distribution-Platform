@@ -10,22 +10,18 @@ public class Main implements AlertListener {
   private static JProgressBar tankBar;
   private static JLabel statusLabel;
   private static JLabel timeLabel;
+  private static JLabel uptimeLabel;
   private static JTextArea alertLog;
   private static BackendConnector backend;
   private static JFrame mainFrame;
+  private static final long startTime = System.currentTimeMillis();
 
   public static void main(String[] args) {
     SwingUtilities.invokeLater(() -> {
-      // 1. Initialize Mock Backend
+      // backend = new RealBackendConnector();
       backend = new MockBackendConnector();
-      
-      // 2. Create Dashboard
       createAndShowDashboard();
-      
-      // 3. Start Auto Refresh (Every 10 sec)
       startAutoRefresh();
-      
-      // 4. Connect Alerts
       backend.setAlertListener(new Main());
     });
   }
@@ -70,6 +66,12 @@ public class Main implements AlertListener {
     topPanel.add(timeLabel);
     topPanel.add(historyBtn);
 
+    JPanel footerPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+    footerPanel.setBackground(new Color(240, 240, 240));
+    uptimeLabel = new JLabel("System Uptime: 0s | Mode: LIVE");
+    uptimeLabel.setFont(new Font("Arial", Font.PLAIN, 12));
+    footerPanel.add(uptimeLabel);
+
     // --- CENTER PANEL (Alert Logs) ---
     alertLog = new JTextArea(10, 40);
     alertLog.setEditable(false);
@@ -90,10 +92,12 @@ public class Main implements AlertListener {
 
   /** Har 10 second mein data refresh karo */
   private static void startAutoRefresh() {
-    Timer timer = new Timer(10000, e -> {
-      SwingUtilities.invokeLater(() -> updateFromBackend());
+    Timer uptimeTimer = new Timer(1000, e -> {
+      long seconds = (System.currentTimeMillis() - startTime) / 1000;
+      uptimeLabel.setText(String.format("System Uptime: %dh %dm %ds | Mode: LIVE", 
+        seconds/3600, (seconds%3600)/60, seconds%60));
     });
-    timer.start();
+    uptimeTimer.start();
   }
 
   /** Backend se naya data lao aur UI update karo */
