@@ -1,28 +1,39 @@
 import backend.*;
 import java.awt.*;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import javax.swing.*; 
+import java.util.Random;
+import javax.swing.*;
+import javax.swing.border.EmptyBorder;
 
+/**
+ * Smart Water Monitoring System - Native Java Swing Interface
+ * Features: Custom Dark Theme, Card Layout, Live Canvas Charts, Responsive Design
+ */
 public class Main extends JFrame implements AlertListener {
-  
-  private JLabel lblPumpStatus; 
-  private JLabel lblTotalVolumeValue;
-  private JLabel lblActivePumpsValue;
-  private JLabel lblAvgLevelValue;
-  private JLabel lblAlertsCountValue;
-  
-  private static BackendConnector backend;
-  private JPanel dashboardPanel;
+
+  private BackendConnector backend;
+  private JPanel mainContainer;
   private Timer refreshTimer;
 
+  // Dynamic Labels for Stats
+  private JLabel lblLevelValue;
+  private JLabel lblPumpStatus;
+  private JLabel lblHealthValue;
+  private JLabel lblAlertsValue;
+
+  // Chart Panel Reference
+  private LiveChartPanel chartPanel;
+
   public Main() {
-    super("💧 Smart Water Monitoring System");
+    super("💧 Smart Water IoT Dashboard");
     setDefaultCloseOperation(EXIT_ON_CLOSE);
-    setSize(1200, 800); 
+    setSize(1280, 800);
     setLocationRelativeTo(null);
-    
-    backend = new RealBackendConnector(); 
+
+    // Initialize Backend
+    backend = new RealBackendConnector();
     backend.setAlertListener(this);
 
     initUI();
@@ -31,9 +42,12 @@ public class Main extends JFrame implements AlertListener {
 
   private void initUI() {
     setLayout(new BorderLayout());
-    add(createHeaderBar(), BorderLayout.NORTH);
 
-    dashboardPanel = new JPanel(new GridBagLayout()) {
+    // Header Bar
+    add(createHeader(), BorderLayout.NORTH);
+
+    // Main Content Container
+    mainContainer = new JPanel(new GridBagLayout()) {
       @Override
       protected void paintComponent(Graphics g) {
         Graphics2D g2 = (Graphics2D) g;
@@ -43,112 +57,135 @@ public class Main extends JFrame implements AlertListener {
         g2.fillRect(0, 0, getWidth(), getHeight());
       }
     };
-    dashboardPanel.setBorder(BorderFactory.createEmptyBorder());
+    mainContainer.setBorder(new EmptyBorder(20, 20, 20, 20));
 
-    JScrollPane scrollPane = new JScrollPane(dashboardPanel);
+    JScrollPane scrollPane = new JScrollPane(mainContainer);
     scrollPane.setBorder(null);
-    scrollPane.getViewport().setBackground(new Color(15, 20, 35)); 
-    
+    scrollPane.getViewport().setOpaque(false);
+    scrollPane.setOpaque(false);
+
     add(scrollPane, BorderLayout.CENTER);
-    buildCards();
+
+    buildDashboardCards();
   }
 
-  private JPanel createHeaderBar() {
-    JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 20, 10));
-    panel.setBackground(new Color(20, 25, 40));
-    panel.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(40, 45, 60)));
-    
-    JLabel title = new JLabel("💧 WATER ANALYTICS DASHBOARD");
-    title.setFont(new Font("Segoe UI", Font.BOLD, 24));
-    title.setForeground(Color.CYAN);
-    
-    JLabel status = new JLabel("LIVE MONITORING ACTIVE");
-    status.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-    status.setForeground(new Color(100, 255, 100));
-    
-    panel.add(title);
-    panel.add(Box.createHorizontalGlue());
-    panel.add(status);
-    return panel;
-  }
-
-  private void buildCards() {
+  private void buildDashboardCards() {
     GridBagConstraints gbc = new GridBagConstraints();
     gbc.fill = GridBagConstraints.BOTH;
     gbc.insets = new Insets(10, 10, 10, 10);
     gbc.weightx = 1.0;
     gbc.weighty = 1.0;
 
-    // Row 1 Stats
-    gbc.gridx = 0; gbc.gridy = 0;
-    JPanel card1 = createDynamicStatCard("TOTAL VOLUME", "-- L", Color.CYAN);
-    Component[] comps1 = card1.getComponents();
-    if(comps1.length > 1 && comps1[1] instanceof JLabel) lblTotalVolumeValue = (JLabel) comps1[1];
-    dashboardPanel.add(card1, gbc);
-    
-    gbc.gridx++;
-    JPanel card2 = createDynamicStatCard("ACTIVE PUMPS", "OFF", Color.GREEN);
-    Component[] comps2 = card2.getComponents();
-    if(comps2.length > 1 && comps2[1] instanceof JLabel) lblActivePumpsValue = (JLabel) comps2[1];
-    dashboardPanel.add(card2, gbc);
-    
-    gbc.gridx++;
-    JPanel card3 = createDynamicStatCard("AVG LEVEL", "--%", Color.YELLOW);
-    Component[] comps3 = card3.getComponents();
-    if(comps3.length > 1 && comps3[1] instanceof JLabel) lblAvgLevelValue = (JLabel) comps3[1];
-    dashboardPanel.add(card3, gbc);
-    
-    gbc.gridx++;
-    JPanel card4 = createDynamicStatCard("ALERTS", "0", Color.RED);
-    Component[] comps4 = card4.getComponents();
-    if(comps4.length > 1 && comps4[1] instanceof JLabel) lblAlertsCountValue = (JLabel) comps4[1];
-    dashboardPanel.add(card4, gbc);
+    // --- ROW 1: KEY METRICS CARDS ---
+    gbc.gridx = 0; gbc.gridy = 0; gbc.gridwidth = 1; gbc.gridheight = 1;
+    mainContainer.add(createMetricCard("TANK LEVEL", "-- L", Color.CYAN, true), gbc);
 
-    // Row 2 Tank
+    gbc.gridx++;
+    mainContainer.add(createMetricCard("PUMP STATUS", "IDLE", Color.GRAY, false), gbc);
+
+    gbc.gridx++;
+    mainContainer.add(createMetricCard("SYS HEALTH", "--%", Color.YELLOW, false), gbc);
+
+    gbc.gridx++;
+    mainContainer.add(createMetricCard("WARNINGS", "0", Color.ORANGE, false), gbc);
+   
+    // --- ROW 2: VISUALIZERS & CONTROLS ---
     gbc.gridx = 0; gbc.gridy = 1; gbc.gridwidth = 2; gbc.gridheight = 2;
-    dashboardPanel.add(createTankVisualizer(), gbc);
+    mainContainer.add(createGridVisualizer(), gbc);
 
-    // Row 3 Chart
     gbc.gridx = 2; gbc.gridy = 1; gbc.gridwidth = 2; gbc.gridheight = 1;
-    dashboardPanel.add(createChartPlaceholder(), gbc);
+    chartPanel = new LiveChartPanel();
+    mainContainer.add(chartPanel, gbc);
 
-    // Row 4 Controls
     gbc.gridx = 2; gbc.gridy = 2; gbc.gridheight = 1;
-    dashboardPanel.add(createControlPanel(), gbc);
+    mainContainer.add(createControlPanel(), gbc);
   }
 
-  private JPanel createDynamicStatCard(String label, String value, Color accent) {
-    JPanel card = new JPanel(new GridLayout(2, 1)) {
+  // --- CUSTOM COMPONENTS ---
+
+  private JPanel createHeader() {
+    JPanel header = new JPanel(new BorderLayout()) {
+      @Override
+      protected void paintComponent(Graphics g) {
+        Graphics2D g2 = (Graphics2D) g;
+        g2.setColor(new Color(20, 25, 40));
+        g2.fillRect(0, 0, getWidth(), getHeight());
+        g2.setColor(new Color(40, 45, 60));
+        g2.drawLine(0, getHeight() - 1, getWidth(), getHeight() - 1);
+      }
+    };
+    header.setPreferredSize(new Dimension(0, 60));
+
+    JLabel title = new JLabel("💧 WATER ANALYTICS DASHBOARD");
+    title.setFont(new Font("Segoe UI", Font.BOLD, 22));
+    title.setForeground(Color.CYAN);
+    title.setBorder(new EmptyBorder(0, 20, 0, 0));
+
+    JLabel status = new JLabel("● LIVE MONITORING ACTIVE");
+    status.setFont(new Font("Consolas", Font.BOLD, 14));
+    status.setForeground(new Color(100, 255, 100));
+    status.setBorder(new EmptyBorder(0, 0, 0, 20));
+
+    header.add(title, BorderLayout.WEST);
+    header.add(status, BorderLayout.EAST);
+    return header;
+  }
+
+  private JPanel createMetricCard(String label, String value, Color accent, boolean isPrimary) {
+    JPanel card = new JPanel(new BorderLayout()) {
       @Override
       protected void paintComponent(Graphics g) {
         Graphics2D g2 = (Graphics2D) g;
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g2.setColor(new Color(25, 30, 45)); 
-        g2.fillRect(0, 0, getWidth(), getHeight());
+
+        // Card Background with Shadow Effect Simulation
+        g2.setColor(new Color(25, 30, 45));
+        g2.fillRoundRect(2, 2, getWidth() - 4, getHeight() - 4, 15, 15);
+
+        // Top Accent Bar
         g2.setColor(accent);
         g2.setStroke(new BasicStroke(4));
-        g2.drawLine(10, 2, getWidth() - 10, 2);
+        g2.drawArc(10, -10, getWidth() - 20, 20, 0, 180); // Curved top line
+
+        // Border Glow if Primary
+        if (isPrimary) {
+          g2.setColor(new Color(accent.getRed(), accent.getGreen(), accent.getBlue(), 50));
+          g2.setStroke(new BasicStroke(2));
+          g2.drawRoundRect(2, 2, getWidth() - 4, getHeight() - 4, 15, 15);
+        }
       }
     };
-    card.setPreferredSize(new Dimension(200, 100));
-    
+    card.setPreferredSize(new Dimension(0, 120));
+
     JLabel lblTitle = new JLabel(label);
     lblTitle.setFont(new Font("Segoe UI", Font.BOLD, 12));
-    lblTitle.setForeground(Color.GRAY);
+    lblTitle.setForeground(Color.LIGHT_GRAY);
     lblTitle.setHorizontalAlignment(SwingConstants.CENTER);
-    
-    JLabel lblValue = new JLabel(value);
-    lblValue.setFont(new Font("Segoe UI", Font.BOLD, 28));
-    lblValue.setForeground(accent);
-    lblValue.setHorizontalAlignment(SwingConstants.CENTER);
-    
-    card.add(lblTitle);
-    card.add(lblValue);
+    lblTitle.setBorder(new EmptyBorder(10, 0, 0, 0));
+
+    JLabel lblVal = new JLabel(value);
+    lblVal.setFont(new Font("Segoe UI", Font.BOLD, 28));
+    lblVal.setForeground(accent);
+    lblVal.setHorizontalAlignment(SwingConstants.CENTER);
+
+    // Store reference for dynamic updates
+    if (label.equals("TANK LEVEL")) lblLevelValue = lblVal;
+    else if (label.equals("PUMP STATUS")) lblPumpStatus = lblVal;
+    else if (label.equals("SYS HEALTH")) lblHealthValue = lblVal;
+    else if (label.equals("WARNINGS") || label.equals("ACTIVE ALERTS")) lblAlertsValue = lblVal;
+
+    card.add(lblTitle, BorderLayout.NORTH);
+    card.add(lblVal, BorderLayout.CENTER);
+
     return card;
   }
 
-  private JComponent createTankVisualizer() {
-    JPanel tankPanel = new JPanel() {
+  private JComponent createGridVisualizer() {
+    JPanel gridPanel = new JPanel() {
+      // Particle list for animation
+      private List<Point> particles = new ArrayList<>();
+      private Random rand = new Random();
+
       @Override
       protected void paintComponent(Graphics g) {
         super.paintComponent(g);
@@ -157,64 +194,115 @@ public class Main extends JFrame implements AlertListener {
         
         int w = getWidth();
         int h = getHeight();
-        int cx = w / 2;
-        int cy = h / 2;
-        int radius = Math.min(w, h) / 3;
         
-        g2.setColor(new Color(40, 45, 60));
-        g2.setStroke(new BasicStroke(10));
-        g2.drawOval(cx - radius, cy - radius, radius * 2, radius * 2);
+        // Layout Constants
+        int mainRadius = 60;
+        int zoneRadius = 35;
+        int centerX = w / 2;
+        int mainY = 80; 
+        int zoneStartX = 40;
+        int zoneGap = (w - 80) / 4; 
+        int zoneY = h - 100; 
         
+        // Get Data
         Map<String, Object> status = backend.getCurrentStatus();
-        int level = (Integer) status.get("level");
-        double percent = level / 10000.0;
+        int mainLevel = (Integer) status.get("mainLevel");
+        boolean pumpOn = (Boolean) status.getOrDefault("pumpActive", false);
+        List<Map<String, Object>> zones = (List<Map<String, Object>>) status.get("zones");
         
-        Color fillColor = Color.GREEN;
+        // 1. DRAW CONNECTING PIPES WITH FLOW INDICATION
+        g2.setStroke(new BasicStroke(4));
+        
+        for (int i = 0; i < 4; i++) {
+          int zx = zoneStartX + (i * zoneGap) + (zoneGap/2);
+          Point start = new Point(centerX, mainY + mainRadius);
+          Point end = new Point(zx, zoneY - zoneRadius);
+          
+          // Draw Base Pipe
+          g2.setColor(new Color(60, 60, 80));
+          g2.drawLine(start.x, start.y, end.x, end.y);
+          
+          // Draw Flow Animation if water is moving
+          Map<String, Object> z = zones.get(i);
+          double flowRate = (Double) z.get("flowRate");
+          
+          if (flowRate > 1.0) { // If there is significant flow
+            g2.setColor(new Color(0, 210, 255, 150)); // Cyan semi-transparent
+            g2.setStroke(new BasicStroke(6));
+            
+            // Generate random particle positions along the line for effect
+            // In a real high-perf app, use Timer. Here we simulate density.
+            int numParticles = (int)(flowRate / 10); 
+            for(int p=0; p<numParticles; p++) {
+              double t = rand.nextDouble(); // Interpolation factor 0-1
+              int px = (int)(start.x + t * (end.x - start.x));
+              int py = (int)(start.y + t * (end.y - start.y));
+              g2.fillOval(px-2, py-2, 4, 4);
+            }
+            g2.setStroke(new BasicStroke(4)); // Reset stroke
+          }
+        }
+        
+        // 2. DRAW MAIN TANK
+        drawTankCircle(g2, centerX, mainY, mainRadius, mainLevel, 10000, "MAIN", pumpOn);
+        
+        // 3. DRAW ZONE TANKS
+        if (zones != null) {
+          for (int i = 0; i < zones.size(); i++) {
+            Map<String, Object> z = zones.get(i);
+            int zx = zoneStartX + (i * zoneGap) + (zoneGap/2);
+            int zLevel = (Integer) z.get("level");
+            int zCap = (Integer) z.get("cap");
+            String zState = (String) z.get("state");
+            
+            Color accent = Color.GREEN;
+            if ("LEAK".equals(zState)) accent = Color.RED;
+            else if ("STAGNANT".equals(zState)) accent = Color.ORANGE;
+            
+            drawTankCircle(g2, zx, zoneY, zoneRadius, zLevel, zCap, "F-" + (i+1), false);
+            
+            // State Label
+            g2.setColor(accent);
+            g2.setFont(new Font("Arial", Font.BOLD, 10));
+            String txt = zState;
+            FontMetrics fm = g2.getFontMetrics();
+            g2.drawString(txt, zx - fm.stringWidth(txt)/2, zoneY + zoneRadius + 15);
+          }
+        }
+      }
+      
+      private void drawTankCircle(Graphics2D g2, int cx, int cy, int r, int level, int cap, String label, boolean isActive) {
+        g2.setColor(new Color(40, 45, 60));
+        g2.setStroke(new BasicStroke(5));
+        g2.drawOval(cx - r, cy - r, r * 2, r * 2);
+        
+        double percent = level / (double) cap;
+        Color fillColor = Color.CYAN;
         if (percent < 0.3) fillColor = Color.RED;
-        else if (percent < 0.6) fillColor = Color.ORANGE;
+        else if (isActive) fillColor = Color.GREEN; 
         
         g2.setColor(fillColor);
-        g2.setStroke(new BasicStroke(15));
-        g2.drawArc(cx - radius, cy - radius, radius * 2, radius * 2, 90, -(int)(360 * percent));
+        g2.setStroke(new BasicStroke(r/3)); 
+        g2.drawArc(cx - r, cy - r, r * 2, r * 2, 90, -(int)(360 * percent));
         
         g2.setColor(Color.WHITE);
-        g2.setFont(new Font("Arial", Font.BOLD, 24));
-        String text = level + " L";
+        g2.setFont(new Font("Arial", Font.BOLD, r/2));
+        String text = String.valueOf(level);
         FontMetrics fm = g2.getFontMetrics();
-        g2.drawString(text, cx - fm.stringWidth(text)/2, cy + 10);
+        g2.drawString(text, cx - fm.stringWidth(text)/2, cy + 5);
         
-        g2.setFont(new Font("Arial", Font.PLAIN, 14));
         g2.setColor(Color.GRAY);
-        g2.drawString("MAIN TANK", cx - fm.stringWidth("MAIN TANK")/2, cy + 30);
+        g2.setFont(new Font("Arial", Font.PLAIN, 10));
+        g2.drawString(label, cx - fm.stringWidth(label)/2, cy + r + 15);
       }
     };
-    tankPanel.setPreferredSize(new Dimension(300, 300));
-    return tankPanel;
-  }
-
-  private JComponent createChartPlaceholder() {
-    JPanel chartArea = new JPanel(new BorderLayout()) {
-       @Override
-       protected void paintComponent(Graphics g) {
-         Graphics2D g2 = (Graphics2D) g;
-         g2.setColor(new Color(25, 30, 45));
-         g2.fillRoundRect(0, 0, getWidth(), getHeight(), 15, 15);
-         
-         g2.setColor(Color.CYAN);
-         g2.setFont(new Font("Segoe UI", Font.BOLD, 16));
-         g2.drawString("📈 LIVE USAGE TREND", 20, 30);
-       }
-    };
-    
-    JButton btnShowHistory = new JButton("View Detailed History");
-    btnShowHistory.addActionListener(e -> showHistoryChart()); 
-    
-    chartArea.add(btnShowHistory, BorderLayout.SOUTH);
-    return chartArea;
-  }
-
+    gridPanel.setPreferredSize(new Dimension(400, 400));
+    return gridPanel;
+  } 
+      
   private JComponent createControlPanel() {
-    JPanel controls = new JPanel(new BorderLayout()) {
+    // Changed to GridLayout(3, 1) to accommodate the new button comfortably
+    JPanel controls = new JPanel(new GridLayout(3, 1, 10, 10)) {
       @Override
       protected void paintComponent(Graphics g) {
         Graphics2D g2 = (Graphics2D) g;
@@ -222,148 +310,258 @@ public class Main extends JFrame implements AlertListener {
         g2.fillRoundRect(0, 0, getWidth(), getHeight(), 15, 15);
       }
     };
+    controls.setBorder(new EmptyBorder(10, 10, 10, 10));
 
-    JLabel header = new JLabel("⚙️ SYSTEM CONTROLS");
-    header.setFont(new Font("Segoe UI", Font.BOLD, 14));
-    header.setForeground(Color.CYAN);
-    header.setHorizontalAlignment(SwingConstants.CENTER);
-    controls.add(header, BorderLayout.NORTH);
+    // 1. Status Label
+    JLabel lblStatus = new JLabel("SYSTEM READY", SwingConstants.CENTER);
+    lblStatus.setFont(new Font("Consolas", Font.BOLD, 16));
+    lblStatus.setForeground(Color.CYAN);
 
-    JPanel centerPanel = new JPanel(new GridLayout(2, 1, 5, 5));
+    // 2. Force Toggle Pump Button (Teal/Cyan Gradient)
+    JButton btnToggle = new JButton("⚡ FORCE TOGGLE PUMP") {
+      @Override
+      protected void paintComponent(Graphics g) {
+        Graphics2D g2 = (Graphics2D) g;
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        
+        GradientPaint gp = new GradientPaint(
+          0, 0, new Color(0, 150, 136), 
+          getWidth(), getHeight(), new Color(0, 210, 255)
+        );
+        g2.setPaint(gp);
+        g2.fillRoundRect(0, 0, getWidth(), getHeight(), 10, 10);
+        
+        g2.setColor(new Color(0, 255, 255, 100)); 
+        g2.setStroke(new BasicStroke(2));
+        g2.drawRoundRect(1, 1, getWidth()-2, getHeight()-2, 10, 10);
+        
+        super.paintComponent(g);
+      }
+    };
+    btnToggle.setForeground(new Color(10, 20, 30)); 
+    btnToggle.setFont(new Font("Segoe UI", Font.BOLD, 14));
+    btnToggle.setFocusPainted(false);
+    btnToggle.setContentAreaFilled(false); 
     
-    lblPumpStatus = new JLabel("STATUS: IDLE", SwingConstants.CENTER);
-    lblPumpStatus.setFont(new Font("Consolas", Font.BOLD, 16));
-    lblPumpStatus.setForeground(Color.GRAY);
-    centerPanel.add(lblPumpStatus);
-
-    JButton btnTogglePump = new JButton("FORCE TOGGLE PUMP");
-    btnTogglePump.setBackground(new Color(40, 45, 60));
-    btnTogglePump.setForeground(Color.WHITE);
-    btnTogglePump.setFocusPainted(false);
-    btnTogglePump.addActionListener(e -> {
-      backend.sendCommand("TOGGLE_PUMP"); 
-      dashboardPanel.repaint(); 
+    btnToggle.addActionListener(e -> {
+      backend.sendCommand("TOGGLE_PUMP");
+      dashboardRepaintAll();
     });
-    centerPanel.add(btnTogglePump);
 
-    controls.add(centerPanel, BorderLayout.CENTER);
+    // 3. NEW: View Zone Analytics Button (Purple Gradient)
+    JButton btnViewZones = new JButton("🔍 VIEW ZONE ANALYTICS") {
+      @Override
+      protected void paintComponent(Graphics g) {
+        Graphics2D g2 = (Graphics2D) g;
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        
+        // Purple/Magenta Gradient for distinction
+        GradientPaint gp = new GradientPaint(
+          0, 0, new Color(100, 50, 150), 
+          getWidth(), getHeight(), new Color(180, 80, 220)
+        );
+        g2.setPaint(gp);
+        g2.fillRoundRect(0, 0, getWidth(), getHeight(), 10, 10);
+        
+        g2.setColor(new Color(255, 255, 255, 50)); 
+        g2.setStroke(new BasicStroke(2));
+        g2.drawRoundRect(1, 1, getWidth()-2, getHeight()-2, 10, 10);
+        
+        super.paintComponent(g);
+      }
+    };
+    btnViewZones.setForeground(Color.WHITE);
+    btnViewZones.setFont(new Font("Segoe UI", Font.BOLD, 14));
+    btnViewZones.setFocusPainted(false);
+    btnViewZones.setContentAreaFilled(false);
+    
+    btnViewZones.addActionListener(e -> {
+      try {
+        Class<?> windowClass = Class.forName("ZoneAnalyticsWindow");
+        java.lang.reflect.Constructor<?> constructor = windowClass.getDeclaredConstructor(backend.getClass());
+        JFrame window = (JFrame) constructor.newInstance(backend);
+        window.setVisible(true);
+      } catch (ReflectiveOperationException | ClassCastException ex) {
+        JOptionPane.showMessageDialog(this, "Zone Analytics not available in Mock Mode.", "Info", JOptionPane.INFORMATION_MESSAGE);
+      }
+    });
+
+    // Add components to panel
+    controls.add(lblStatus);
+    controls.add(btnToggle);
+    controls.add(btnViewZones);
+    
     return controls;
   }
   
+  class LiveChartPanel extends JPanel {
+    private List<Integer> historyData = new ArrayList<>();
+    private static final int MAX_POINTS = 50;
+
+    public LiveChartPanel() {
+      setBackground(new Color(25, 30, 45));
+      setPreferredSize(new Dimension(0, 200));
+      
+      // Add border painter manually in paintComponent
+    }
+
+    @Override
+    protected void paintComponent(Graphics g) {
+      super.paintComponent(g);
+      Graphics2D g2 = (Graphics2D) g;
+      g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+      int w = getWidth();
+      int h = getHeight();
+      int padding = 20;
+      int chartW = w - 2 * padding;
+      int chartH = h - 2 * padding;
+
+      // Title
+      g2.setColor(Color.CYAN);
+      g2.setFont(new Font("Segoe UI", Font.BOLD, 14));
+      g2.drawString("📈 LIVE USAGE TREND", padding, 15);
+
+      // Axes
+      g2.setColor(new Color(60, 60, 80));
+      g2.setStroke(new BasicStroke(1));
+      g2.drawLine(padding, padding, padding, h - padding);
+      g2.drawLine(padding, h - padding, w - padding, h - padding);
+
+      // Plot Data
+      if (historyData.size() > 1) {
+        g2.setColor(new Color(0, 210, 255)); // Cyan Line
+        g2.setStroke(new BasicStroke(3));
+
+        int prevX = padding;
+        int prevY = h - padding;
+
+        for (int i = 0; i < historyData.size(); i++) {
+          int val = historyData.get(i);
+          double percent = val / 10000.0;
+
+          int x = padding + (i * chartW / (MAX_POINTS - 1));
+          int y = h - padding - (int) (percent * chartH);
+
+          if (i > 0) {
+            g2.drawLine(prevX, prevY, x, y);
+          }
+
+          // Draw Point
+          g2.fillOval(x - 3, y - 3, 6, 6);
+
+          prevX = x;
+          prevY = y;
+        }
+      } else {
+        g2.setColor(Color.GRAY);
+        g2.drawString("Waiting for data...", padding + 50, h / 2);
+      }
+    }
+
+    public void addDataPoint(int level) {
+      historyData.add(level);
+      if (historyData.size() > MAX_POINTS) {
+        historyData.remove(0);
+      }
+      repaint();
+    }
+  }
+
   private void startRefreshLoop() {
     refreshTimer = new Timer(2000, e -> {
       SwingUtilities.invokeLater(() -> {
-        Map<String, Object> status = backend.getCurrentStatus();
-        
-        int level = (Integer) status.get("level");
-        boolean pumpOn = (Boolean) status.getOrDefault("pumpActive", false);
-        int capacity = (Integer) status.get("capacity");
-        int percent = (level * 100) / capacity;
+        try {
+          Map<String, Object> status = backend.getCurrentStatus();
 
-        if (lblTotalVolumeValue != null) lblTotalVolumeValue.setText(level + " L");
-        if (lblActivePumpsValue != null) {
-          lblActivePumpsValue.setText(pumpOn ? "1 / 1" : "0 / 1");
-          lblActivePumpsValue.setForeground(pumpOn ? Color.GREEN : Color.GRAY);
-        }
-        if (lblAvgLevelValue != null) lblAvgLevelValue.setText(percent + "%");
-        
-        if (lblPumpStatus != null) {
-          if (pumpOn) {
-            lblPumpStatus.setText("STATUS: RUNNING 🟢");
-            lblPumpStatus.setForeground(Color.GREEN);
-          } else {
-            lblPumpStatus.setText("STATUS: IDLE ⚪");
-            lblPumpStatus.setForeground(Color.GRAY);
+          // 1. Fetch Basic Metrics
+          int level = (Integer) status.getOrDefault("mainLevel", 0);
+          boolean pumpOn = (Boolean) status.getOrDefault("pumpActive", false);
+          
+          // 2. Fetch Advanced Metrics (With Safety Checks)
+          String healthStr = (String) status.getOrDefault("healthScore", "N/A");
+          int alerts = (Integer) status.getOrDefault("activeAlerts", 0);
+
+          // --- UPDATE LABELS ---
+
+          // Tank Level Card
+          if (lblLevelValue != null) {
+            lblLevelValue.setText(level + " L");
           }
+
+          // Pump Status Card
+          if (lblPumpStatus != null) {
+            lblPumpStatus.setText(pumpOn ? "RUNNING 🟢" : "IDLE ⚪");
+            lblPumpStatus.setForeground(pumpOn ? Color.GREEN : Color.GRAY);
+          }
+
+          if (lblHealthValue != null) {
+            lblHealthValue.setText(healthStr);
+            
+            // Color Coding Logic
+            try {
+              if (healthStr.contains("%")) {
+                double val = Double.parseDouble(healthStr.replace("%", "").trim());
+                if (val >= 80) {
+                  lblHealthValue.setForeground(Color.GREEN);
+                } else if (val >= 50) {
+                  lblHealthValue.setForeground(Color.ORANGE);
+                } else {
+                  lblHealthValue.setForeground(Color.RED);
+                }
+              } else {
+                lblHealthValue.setForeground(Color.GRAY);
+              }
+            } catch (NumberFormatException ex) {
+              lblHealthValue.setForeground(Color.GRAY);
+            }
+          } else {
+            System.err.println("ERROR: lblHealthValue is NULL! Check buildDashboardCards().");
+          }
+
+          if (lblAlertsValue != null) {
+            lblAlertsValue.setText(String.valueOf(alerts));
+            
+            if (alerts == 0) {
+              lblAlertsValue.setForeground(Color.GREEN);
+              lblAlertsValue.setFont(new Font("Segoe UI", Font.BOLD, 28));
+            } else if (alerts <= 2) {
+              lblAlertsValue.setForeground(Color.ORANGE); // Warning Zone
+              lblAlertsValue.setFont(new Font("Segoe UI", Font.BOLD, 30));
+            } else {
+              lblAlertsValue.setForeground(Color.RED); // Critical Zone
+              lblAlertsValue.setFont(new Font("Segoe UI", Font.BOLD, 32));
+            }
+          }
+
+          // Update Live Chart
+          if (chartPanel != null) {
+            chartPanel.addDataPoint(level);
+          }
+
+          // Repaint Grid Visualizer (Tank Circles & Pipes)
+          mainContainer.repaint();
+
+        } catch (Exception ex) {
+          System.err.println("UI Refresh Error: " + ex.getMessage());
+          ex.printStackTrace();
         }
-        
-        dashboardPanel.repaint(); 
       });
     });
     refreshTimer.start();
   }
 
-  private void showHistoryChart() {
-    JFrame chartFrame = new JFrame("📈 Live Usage History");
-    chartFrame.setSize(800, 500);
-    chartFrame.setLocationRelativeTo(this);
-    chartFrame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-
-    JPanel chartPanel = new JPanel() {
-      @Override
-      protected void paintComponent(Graphics g) {
-        super.paintComponent(g);
-        Graphics2D g2 = (Graphics2D) g;
-        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-
-        int width = getWidth();
-        int height = getHeight();
-        int padding = 50;
-        int chartW = width - 2 * padding;
-        int chartH = height - 2 * padding;
-
-        g2.setColor(new Color(15, 20, 35)); 
-        g2.fillRect(0, 0, width, height);
-
-        g2.setColor(Color.CYAN);
-        g2.setFont(new Font("Arial", Font.BOLD, 18));
-        g2.drawString("Water Level Trend (Last 24 Hours)", padding, 30);
-
-        List<Map<String, Object>> history = backend.getHistory(24);
-        if (history == null || history.isEmpty()) {
-          g2.drawString("No Data Available", padding, height/2);
-          return;
-        }
-
-        int maxVal = 10000; 
-        
-        g2.setColor(new Color(60, 60, 80));
-        g2.setStroke(new BasicStroke(1));
-        g2.drawLine(padding, padding, padding, height - padding);
-        g2.drawLine(padding, height - padding, width - padding, height - padding);
-
-        g2.setColor(Color.GREEN); 
-        g2.setStroke(new BasicStroke(3));
-        
-        int prevX = padding;
-        int prevY = height - padding;
-
-        for (int i = 0; i < history.size(); i++) {
-          Map<String, Object> reading = history.get(i);
-          int level = (Integer) reading.get("level");
-          
-          int x = padding + (i * chartW / (history.size() - 1));
-          int y = height - padding - (level * chartH / maxVal);
-
-          if (i > 0) {
-            g2.drawLine(prevX, prevY, x, y);
-          }
-          g2.fillOval(x - 3, y - 3, 6, 6);
-          
-          prevX = x;
-          prevY = y;
-        }
-      }
-    };
-
-    chartFrame.add(chartPanel);
-    chartFrame.setVisible(true);
-
-    Timer chartTimer = new Timer(10000, e -> chartPanel.repaint());
-    chartTimer.start();
-    
-    chartFrame.addWindowListener(new java.awt.event.WindowAdapter() {
-      public void windowClosed(java.awt.event.WindowEvent e) { chartTimer.stop(); }
-    });
+  private void dashboardRepaintAll() {
+    if (mainContainer != null) mainContainer.repaint();
   }
 
   @Override
   public void onAlert(String severity, String message) {
     SwingUtilities.invokeLater(() -> {
-      JOptionPane.showMessageDialog(this, 
-        "[" + severity + "] " + message, 
-        "System Alert", 
-        JOptionPane.WARNING_MESSAGE);
+      JOptionPane.showMessageDialog(this,
+          "[" + severity + "] " + message,
+          "System Alert",
+          JOptionPane.WARNING_MESSAGE);
     });
   }
 
@@ -371,22 +569,13 @@ public class Main extends JFrame implements AlertListener {
     SwingUtilities.invokeLater(() -> {
       try {
         UIManager.setLookAndFeel("javax.swing.plaf.metal.MetalLookAndFeel");
-        Color bgColor = new Color(15, 20, 35);
-        Color textColor = Color.WHITE;
-        
-        UIManager.put("Panel.background", bgColor);
-        UIManager.put("Label.foreground", textColor);
-        UIManager.put("Button.background", new Color(40, 45, 60));
-        UIManager.put("Button.foreground", textColor);
-        UIManager.put("ScrollPane.background", bgColor);
-        UIManager.put("Viewport.background", bgColor);
-        UIManager.put("TextArea.background", new Color(25, 30, 45));
-        UIManager.put("TextArea.foreground", textColor);
-        
+        // Set global colors to avoid white flashes
+        UIManager.put("Panel.background", new Color(15, 20, 35));
+        UIManager.put("Label.foreground", Color.WHITE);
       } catch (Exception e) {
         e.printStackTrace();
       }
-      
+
       Main app = new Main();
       app.setVisible(true);
     });

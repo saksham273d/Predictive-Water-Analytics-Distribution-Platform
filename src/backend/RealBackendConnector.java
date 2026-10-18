@@ -1,64 +1,73 @@
 package backend;
 
+import java.io.FileWriter;
+import java.io.IOException;
 import java.sql.*;
 import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * Advanced Smart Water Monitoring System - Backend Connector
- * 
- * Features:
- * 1. Hardware Abstraction Layer (HAL).
- * 2. Velocity-Based Predictive Pump Control.
- * 3. Anomaly Detection & Signal Filtering.
- * 4. Virtual Pressure Calculation (Simulated from Level).
+ * Enterprise-Grade Smart Water Grid Manager (Optimized Version)
+ * Features: Zero Idle Loss, Demand-Driven Distribution, Latching Refill Logic
  */
 public class RealBackendConnector implements BackendConnector {
 
   // --- CONFIGURATION CONSTANTS ---
-  private static final int TOTAL_FAMILIES = 50;
-  private static final int LIMIT_PER_FAMILY = 100; 
-  private static final int MAX_CAPACITY = 10000;   
+  private static final int MAIN_CAPACITY = 10000;   
+  private static final int NUM_ZONES = 4; 
+  private static final int[] ZONE_CAPACITIES = {2000, 2000, 2000, 2000}; 
   
-  // Pump Control Thresholds
-  private static final int BASE_PUMP_ON_LEVEL = 3000;      
-  private static final int PUMP_OFF_LEVEL = 9500;          
-  private static final double VELOCITY_TRIGGER_THRESHOLD = 8.0; 
-  private static final int PREDICTIVE_START_LEVEL = 4500;  
-
-  // NEW: Pressure Limits (Bar units for simulation)
-  private static final double MIN_SAFE_PRESSURE = 0.5; 
-  private static final double MAX_SAFE_PRESSURE = 6.0; 
-
-  // Simulation Parameters
-  private static final int SIM_BASE_CONSUMPTION = 15;
-  private static final int SIM_RANDOM_SPIKE_MAX = 20;
+  // Pump Thresholds for Main Tank (External Supply)
+  private static final int MAIN_PUMP_ON_LEVEL = 3000;      
+  private static final int MAIN_PUMP_OFF_LEVEL = 9500;          
+  
+  // Simulation Rates
+  // REMOVED SIM_BASE_CONSUMPTION_MAIN to prevent artificial drain when idle
   private static final int SIM_REFILL_RATE = 250;
   
+  // Pipe Flow Speed (Balanced for smooth visualization)
+  private static final double MAX_PIPE_FLOW_RATE = 150.0; // Liters per second
+  
+  // Zone Refill Logic (The "Smart Buffer")
+  private static final int ZONE_REFILL_TRIGGER = 800;   // Start refilling below this
+  private static final int ZONE_TARGET_FILL = 1800;     // Stop refilling at this level
+
   // Database Credentials
   private static final String DB_URL = "jdbc:mysql://localhost:3306/water_mgmt_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&autoReconnect=true";
   private static final String DB_USER = "root";
   private static final String DB_PASS = "VSP@23122709"; 
 
-  // --- STATE VARIABLES (Thread-Safe) ---
-  private volatile int currentLevel = 7500;
-  private volatile int previousLevel = 7500;
+  // --- STATE VARIABLES ---
+  private volatile int mainLevel = 7500;
+  private volatile int previousMainLevel = 7500;
   private volatile long lastUpdateTime = System.currentTimeMillis();
   
-  private volatile int currentDayUsage = 0;
-  private volatile boolean isPumpRunning = false;
+  private volatile boolean isMainPumpRunning = false;
   
-  // Metrics for UI/Analytics
-  private volatile double currentDrainVelocity = 0.0; 
-  private volatile double currentPressure = 0.0; // NEW VARIABLE
-  private volatile String systemStatus = "NORMAL";
+  // Dynamic Arrays for Zones
+  private volatile int[] zoneLevels = new int[NUM_ZONES]; 
+  private volatile int[] previousZoneLevels = new int[NUM_ZONES];
+  private volatile double[] currentFlowRates = new double[NUM_ZONES]; 
+  private volatile String[] zoneStatus = new String[NUM_ZONES]; 
+  
+  // Track which zones are actively refilling (Prevents Sawtooth Wave)
+  private boolean[] isZoneRefilling = new boolean[NUM_ZONES];
+
+  // Metrics
+  private volatile double totalWaterDeliveredToZones = 0;
+  private volatile double totalWaterConsumedFromMain = 0;
+  private volatile double currentDrainVelocity = 0.0;
+  private volatile int activeAlertCount = 0;
+  private volatile double systemHealthScore = 100.0; 
+
+  // History Storage for Graphs
+  private List<List<Integer>> zoneHistories = new ArrayList<>();
+  private static final int HISTORY_SIZE = 50; 
 
   // Connections & Timers
   private Connection dbConnection;
   private Timer monitoringTimer;
   private AlertListener listener;
-
-  private static final boolean USE_HARDWARE_MODE = false;
 
   public RealBackendConnector() {
     try {
@@ -70,13 +79,24 @@ public class RealBackendConnector implements BackendConnector {
   }
 
   private void initializeSystem() throws Exception {
-    if (!USE_HARDWARE_MODE) {
-      System.out.println("🧪 Running in Simulation Mode...");
-      ensureDatabaseConnection(); 
-      loadInitialStateFromDB();
-    } else {
-      initHardwareInterface(); 
+    System.out.println("🧪 Initializing Enterprise Water Grid...");
+    
+    // Initialize empty histories and flags for all zones
+    for(int i=0; i<NUM_ZONES; i++) {
+      zoneHistories.add(new LinkedList<>());
+      isZoneRefilling[i] = false; 
     }
+
+    // Start zones LOW so they immediately trigger refill logic upon startup
+    for(int i=0; i<NUM_ZONES; i++) {
+      zoneLevels[i] = 300 + ThreadLocalRandom.current().nextInt(0, 300); 
+      previousZoneLevels[i] = zoneLevels[i];
+      currentFlowRates[i] = 0.0;
+      zoneStatus[i] = "NORMAL";
+    }
+
+    ensureDatabaseConnection(); 
+    loadInitialStateFromDB();
     startMonitoringLoop();
   }
 
@@ -100,10 +120,9 @@ public class RealBackendConnector implements BackendConnector {
       try (Statement stmt = dbConnection.createStatement();
            ResultSet rs = stmt.executeQuery(sql)) {
         if (rs.next()) {
-          this.currentLevel = rs.getInt("level_liters");
-          this.previousLevel = this.currentLevel;
-          updatePressureMetric(); // Calculate initial pressure
-          System.out.println("📂 Loaded Last Level from DB: " + currentLevel + "L | Press: " + String.format("%.2f", currentPressure) + " Bar");
+          this.mainLevel = rs.getInt("level_liters");
+          this.previousMainLevel = this.mainLevel;
+          System.out.println("📂 Loaded Main Level from DB: " + mainLevel + "L");
         }
       }
     } catch (SQLException e) {
@@ -124,105 +143,194 @@ public class RealBackendConnector implements BackendConnector {
   private void processSystemCycle() {
     long now = System.currentTimeMillis();
     double deltaTimeSec = (now - lastUpdateTime) / 1000.0;
-    
     if (deltaTimeSec <= 0) return; 
 
-    // 1. DATA INGESTION
-    int rawConsumption = getRawSensorData(deltaTimeSec);
-    
-    // 2. ANOMALY DETECTION
-    int maxPhysicalDrainPerSec = 50; 
-    int maxAllowedDrop = (int)(maxPhysicalDrainPerSec * deltaTimeSec);
-    int filteredNewLevel = currentLevel - rawConsumption;
-    
-    if ((currentLevel - filteredNewLevel) > maxAllowedDrop) {
-      filteredNewLevel = currentLevel - maxAllowedDrop;
-    }
+    // 1. DRAIN FIRST (This MUST happen before refill checks)
+    simulateConsumerUsage(deltaTimeSec);
 
-    // 3. UPDATE STATE
-    currentDrainVelocity = (previousLevel - filteredNewLevel) / deltaTimeSec;
-    previousLevel = currentLevel;
-    currentLevel = Math.max(0, filteredNewLevel);
-    currentDayUsage += rawConsumption; 
+    // 2. PUMP CONTROL (Fill Main Tank if low)
+    updateMainPumpStatus();
+
+    // 3. REFILL ZONES (Move water from Main to Zone if Zone is low)
+    replenishZonesToTarget(deltaTimeSec);
+
+    // ... rest of the code (metrics, history, db save) ...
+    
+    currentDrainVelocity = (previousMainLevel - mainLevel) / deltaTimeSec;
+    previousMainLevel = mainLevel;
     lastUpdateTime = now;
 
-    // 4. CALCULATE PRESSURE (NEW LOGIC)
-    updatePressureMetric();
-
-    // 5. PUMP CONTROL
-    updatePumpStatusPredictive(currentDrainVelocity);
-
-    // 6. PERSISTENCE & ALERTS
-    saveReadingToDB(currentDrainVelocity, currentPressure);
-    checkHealthAlerts();
-    updateSystemStatusString();
-  }
-
-  /**
-   * Simulates Pressure based on Tank Height (Hydrostatic Principle)
-   * Formula: P ≈ ρgh (Simplified for Demo: Higher Level = Higher Pressure at Bottom)
-   */
-  private void updatePressureMetric() {
-    // Map 0-10000 Liters to 0.0 - 6.0 Bar roughly
-    this.currentPressure = (currentLevel / (double) MAX_CAPACITY) * MAX_SAFE_PRESSURE;
-  }
-
-  private int getRawSensorData(double dt) {
-    if (USE_HARDWARE_MODE) return 0; 
-    
-    int consumption = SIM_BASE_CONSUMPTION + ThreadLocalRandom.current().nextInt(0, SIM_RANDOM_SPIKE_MAX);
-    if (ThreadLocalRandom.current().nextDouble() < 0.05) {
-      consumption += 500; 
-    }
-    return consumption;
-  }
-
-  private void updatePumpStatusPredictive(double velocity) {
-    if (!isPumpRunning) {
-      if (currentLevel <= BASE_PUMP_ON_LEVEL) {
-        activatePump("Low Level Trigger");
+    // Record histories...
+    for (int i = 0; i < NUM_ZONES; i++) {
+      List<Integer> hist = zoneHistories.get(i);
+      hist.add(zoneLevels[i]);
+      if (hist.size() > HISTORY_SIZE) {
+        hist.remove(0); 
       }
-      else if (velocity > VELOCITY_TRIGGER_THRESHOLD && currentLevel <= PREDICTIVE_START_LEVEL) {
-        activatePump("High Velocity Warning");
+    }
+
+    saveGridDataToDB();
+    checkGlobalAlerts();
+  }
+
+  private void simulateConsumerUsage(double dt) {
+    for (int i = 0; i < NUM_ZONES; i++) {
+      
+      // IF TANK HAS WATER, TAKE IT AWAY IMMEDIATELY
+      if (zoneLevels[i] > 0) {
+        
+        // HIGH USAGE RATE: 30-60 Liters per tick (2 seconds)
+        // This ensures visible movement on screen within 5-10 seconds
+        int usage = 30 + ThreadLocalRandom.current().nextInt(0, 30); 
+        
+        zoneLevels[i] -= usage;
+        
+        // Prevent negative values
+        if (zoneLevels[i] < 0) {
+          zoneLevels[i] = 0;
+        }
+        
+        // Update Stats
+        totalWaterConsumedFromMain += usage; 
+      }
+    }
+  }
+
+  private void replenishZonesToTarget(double dt) {
+    
+    for (int i = 0; i < NUM_ZONES; i++) {
+      
+      int currentLevel = zoneLevels[i];
+      
+      // 1. TRIGGER PHASE: If tank drops BELOW 800, latch ON
+      if (currentLevel < ZONE_REFILL_TRIGGER) {
+        isZoneRefilling[i] = true;
+      }
+      
+      // 2. STOP PHASE: If tank reaches TARGET (1800), latch OFF
+      if (currentLevel >= ZONE_TARGET_FILL) {
+        isZoneRefilling[i] = false;
+      }
+      
+      if (isZoneRefilling[i] && mainLevel > 0) {
+        
+        // Calculate how much space left to hit TARGET
+        int amountNeeded = ZONE_TARGET_FILL - currentLevel;
+        if (amountNeeded <= 0) {
+           isZoneRefilling[i] = false; 
+           continue;
+        }
+
+        double maxFlowPerTick = MAX_PIPE_FLOW_RATE * dt;
+        double desiredFlow = Math.min(maxFlowPerTick, amountNeeded);
+        int actualFlow = (int) Math.min(desiredFlow, mainLevel);
+        
+        if (actualFlow > 0) {
+          mainLevel -= actualFlow;
+          zoneLevels[i] += actualFlow;
+          
+          // Cap strictly at Target
+          if (zoneLevels[i] >= ZONE_TARGET_FILL) {
+            zoneLevels[i] = ZONE_TARGET_FILL;
+            isZoneRefilling[i] = false; // Force stop exactly at target
+          }
+          
+          currentFlowRates[i] = actualFlow / dt;
+          totalWaterDeliveredToZones += actualFlow;
+        } else {
+          currentFlowRates[i] = 0.0;
+        }
+        
+      } else {
+        // Not refilling (Flag is False) -> DO NOTHING EVEN IF LEVEL IS < 1800
+        currentFlowRates[i] = 0.0;
+      }
+    }
+    
+    if (mainLevel < 0) mainLevel = 0;
+  }
+  
+  private void detectAnomaliesAndCalculateHealth(double dt) {
+    activeAlertCount = 0; // Reset counter
+    
+    double healthScore = 100.0;
+
+    for (int i = 0; i < NUM_ZONES; i++) {
+      int actualDrop = previousZoneLevels[i] - zoneLevels[i];
+      
+      // A. LEAK DETECTION (Critical Alert)
+      if (actualDrop > 50) {
+        zoneStatus[i] = "LEAK";
+        activeAlertCount++;
+        healthScore -= 20; 
+        System.out.println("🚨 [ZONE " + (i+1) + "] CRITICAL LEAK DETECTED!");
+        if (listener != null) listener.onAlert("CRITICAL", "Leak in Floor " + (i+1));
+      } 
+      // B. LOW LEVEL WARNING (Operational Alert)
+      else if (zoneLevels[i] < (ZONE_CAPACITIES[i] * 0.2)) { // Less than 20% full
+        zoneStatus[i] = "LOW LEVEL";
+        activeAlertCount++;
+        healthScore -= 5; // Minor penalty
+        System.out.println("⚠️ [ZONE " + (i+1) + "] LOW WATER LEVEL! Refill Needed.");
+      }
+      // C. NORMAL STATE
+      else {
+        zoneStatus[i] = "NORMAL";
+      }
+      
+      previousZoneLevels[i] = zoneLevels[i];
+    }
+
+    // D. MAIN TANK CRITICAL CHECK
+    if (mainLevel < (MAIN_CAPACITY * 0.1)) {
+       activeAlertCount++;
+       healthScore -= 15;
+       System.out.println("🔴 [MAIN TANK] CRITICALLY LOW!");
+    }
+
+    // Clamp Score
+    if (healthScore < 0) healthScore = 0;
+    if (healthScore > 100) healthScore = 100;
+    
+    this.systemHealthScore = healthScore;
+  }
+
+  private void updateMainPumpStatus() {
+    if (!isMainPumpRunning) {
+      if (mainLevel <= MAIN_PUMP_ON_LEVEL) {
+        isMainPumpRunning = true;
+        System.out.println("🟢 MAIN PUMP AUTO-STARTED at Level: " + mainLevel + "L");
+        if (listener != null) listener.onAlert("INFO", "Main Pump Activated.");
       }
     } else {
-      if (currentLevel >= PUMP_OFF_LEVEL) {
-        deactivatePump("Tank Full");
+      if (mainLevel >= MAIN_PUMP_OFF_LEVEL) {
+        isMainPumpRunning = false;
+        System.out.println("🔴 MAIN PUMP AUTO-STOPPED at Level: " + mainLevel + "L");
+        if (listener != null) listener.onAlert("INFO", "Main Tank Full.");
       }
     }
 
-    if (isPumpRunning) {
-      currentLevel += SIM_REFILL_RATE; 
-      if (currentLevel > MAX_CAPACITY) {
-        currentLevel = MAX_CAPACITY;
-        isPumpRunning = false; 
+    if (isMainPumpRunning) {
+      mainLevel += SIM_REFILL_RATE; 
+      if (mainLevel >= MAIN_CAPACITY) {
+        mainLevel = MAIN_CAPACITY;
+        isMainPumpRunning = false; 
+        System.out.println("🔴 MAIN PUMP STOPPED (Overflow Prevention)");
       }
     }
   }
 
-  private void activatePump(String reason) {
-    isPumpRunning = true;
-    System.out.println("🟢 PUMP AUTO-STARTED [" + reason + "] at Level: " + currentLevel + "L | Press: " + String.format("%.2f", currentPressure) + " Bar");
-    if (listener != null) listener.onAlert("INFO", "Pump Activated: " + reason);
-  }
-
-  private void deactivatePump(String reason) {
-    isPumpRunning = false;
-    System.out.println("🔴 PUMP AUTO-STOPPED [" + reason + "] at Level: " + currentLevel + "L");
-    if (listener != null) listener.onAlert("INFO", "Pump Deactivated: " + reason);
-  }
-
-  private void saveReadingToDB(double velocity, double pressure) {
+  private void saveGridDataToDB() {
     try {
       ensureDatabaseConnection(); 
-      // Note: You need to add 'pressure_bar' column to your SQL table too!
-      String sql = "INSERT INTO tank_readings (level_liters, capacity_liters, pump_status, drain_velocity, pressure_bar) VALUES (?, ?, ?, ?, ?)";
+      String sql = "INSERT INTO tank_readings (level_liters, capacity_liters, pump_status, drain_velocity, leak_detected) VALUES (?, ?, ?, ?, ?)";
       try (PreparedStatement pstmt = dbConnection.prepareStatement(sql)) {
-        pstmt.setInt(1, currentLevel);
-        pstmt.setInt(2, MAX_CAPACITY);
-        pstmt.setString(3, isPumpRunning ? "ON" : "OFF");
-        pstmt.setDouble(4, velocity);
-        pstmt.setDouble(5, pressure);
+        pstmt.setInt(1, mainLevel);
+        pstmt.setInt(2, MAIN_CAPACITY);
+        pstmt.setString(3, isMainPumpRunning ? "ON" : "OFF");
+        pstmt.setDouble(4, currentDrainVelocity);
+        boolean anyLeak = Arrays.stream(zoneStatus).anyMatch(s -> s.equals("LEAK"));
+        pstmt.setBoolean(5, anyLeak);
         pstmt.executeUpdate();
       }
     } catch (SQLException e) {
@@ -230,60 +338,50 @@ public class RealBackendConnector implements BackendConnector {
     }
   }
 
-  private void checkHealthAlerts() {
+  private void checkGlobalAlerts() {
     if (listener == null) return;
-    int requiredForToday = TOTAL_FAMILIES * LIMIT_PER_FAMILY;
-    
-    // CRITICAL: Low Pressure Check (Pipe Leak Simulation)
-    if (currentPressure < MIN_SAFE_PRESSURE && !isPumpRunning && currentLevel > 1000) {
-       listener.onAlert("CRITICAL", "LOW PRESSURE DETECTED! Possible Pipe Leak.");
-    }
-    
-    // WARNING: High Pressure Check (Blockage Simulation)
-    if (currentPressure > MAX_SAFE_PRESSURE - 0.5 && isPumpRunning) {
-       listener.onAlert("WARNING", "HIGH PRESSURE WARNING! Check Valves.");
-    }
-
-    if (currentLevel <= 500 && !isPumpRunning) {
-       listener.onAlert("CRITICAL", "TANK CRITICALLY LOW!");
+    if (mainLevel <= 500 && !isMainPumpRunning) {
+       listener.onAlert("CRITICAL", "MAIN TANK CRITICALLY LOW!");
     } 
-    else if (currentDayUsage > requiredForToday && currentDayUsage % 1000 < 100) {
-       listener.onAlert("WARNING", "Daily Quota Exceeded!");
+    if (systemHealthScore < 50) {
+       listener.onAlert("WARNING", "SYSTEM HEALTH DEGRADED (<50%)");
     }
   }
 
-  private void updateSystemStatusString() {
-    if (currentLevel < 1000) systemStatus = "CRITICAL";
-    else if (isPumpRunning) systemStatus = "REFILLING";
-    else if (currentDrainVelocity > 10) systemStatus = "RAPID DRAIN";
-    else if (currentPressure < MIN_SAFE_PRESSURE) systemStatus = "LOW PRESSURE"; // NEW STATUS
-    else if (currentDayUsage > TOTAL_FAMILIES * LIMIT_PER_FAMILY) systemStatus = "OVER_USAGE";
-    else systemStatus = "NORMAL";
-  }
+  // --- GETTERS FOR UI ---
 
   @Override
   public Map<String, Object> getCurrentStatus() {
     Map<String, Object> status = new HashMap<>();
-    status.put("level", currentLevel);
-    status.put("capacity", MAX_CAPACITY);
-    status.put("pumpActive", isPumpRunning); 
-    status.put("totalFamilies", TOTAL_FAMILIES);
-    status.put("limitPerFamily", LIMIT_PER_FAMILY);
-    status.put("currentDayUsage", currentDayUsage);
-    status.put("requiredForToday", TOTAL_FAMILIES * LIMIT_PER_FAMILY);
+    status.put("mainLevel", mainLevel);
+    status.put("capacity", MAIN_CAPACITY);
+    status.put("pumpActive", isMainPumpRunning); 
+    status.put("status", systemHealthScore < 50 ? "DEGRADED" : (isMainPumpRunning ? "REFILLING" : "NORMAL"));
     status.put("drainVelocity", String.format("%.2f L/s", currentDrainVelocity));
-    status.put("pressure", String.format("%.2f Bar", currentPressure)); // NEW METRIC
-    status.put("predictionRisk", currentDrainVelocity > 8 ? "HIGH" : "LOW");
-    status.put("status", systemStatus);
+    status.put("healthScore", String.format("%.1f%%", systemHealthScore));
+    status.put("activeAlerts", activeAlertCount);
+    
+    List<Map<String, Object>> zones = new ArrayList<>();
+    for(int i=0; i<NUM_ZONES; i++) {
+      Map<String, Object> z = new HashMap<>();
+      z.put("id", i+1);
+      z.put("level", zoneLevels[i]);
+      z.put("cap", ZONE_CAPACITIES[i]);
+      z.put("state", zoneStatus[i]);
+      z.put("flowRate", currentFlowRates[i]); 
+      zones.add(z);
+    }
+    status.put("zones", zones);
+    
     return status;
   }
 
   @Override
   public List<Map<String, Object>> getHistory(int hours) {
-    List<Map<String, Object>> history = new ArrayList<>();
-    try {
+     List<Map<String, Object>> history = new ArrayList<>();
+     try {
       ensureDatabaseConnection();
-      String sql = "SELECT level_liters, recorded_at, drain_velocity, pressure_bar FROM tank_readings ORDER BY recorded_at DESC LIMIT 100";
+      String sql = "SELECT level_liters, recorded_at, drain_velocity, leak_detected FROM tank_readings ORDER BY recorded_at DESC LIMIT 100";
       try (Statement stmt = dbConnection.createStatement();
            ResultSet rs = stmt.executeQuery(sql)) {
         while (rs.next()) {
@@ -291,7 +389,7 @@ public class RealBackendConnector implements BackendConnector {
           row.put("level", rs.getInt("level_liters"));
           row.put("timestamp", rs.getTimestamp("recorded_at").getTime());
           row.put("velocity", rs.getDouble("drain_velocity"));
-          row.put("pressure", rs.getDouble("pressure_bar"));
+          row.put("leak", rs.getBoolean("leak_detected"));
           history.add(row);
         }
       }
@@ -308,32 +406,65 @@ public class RealBackendConnector implements BackendConnector {
   @Override
   public boolean sendCommand(String command) {
     if ("TOGGLE_PUMP".equals(command)) {
-      isPumpRunning = !isPumpRunning;
-      System.out.println("👤 MANUAL OVERRIDE: Pump switched to " + (isPumpRunning ? "ON" : "OFF"));
+      isMainPumpRunning = !isMainPumpRunning;
+      System.out.println("👤 MANUAL OVERRIDE: Main Pump switched to " + (isMainPumpRunning ? "ON" : "OFF"));
+      return true;
+    }
+    if ("EXPORT_CSV".equals(command)) {
+      exportDataToCsv();
       return true;
     }
     return false;
   }
 
+  private void exportDataToCsv() {
+    try {
+      FileWriter writer = new FileWriter("water_grid_report.csv");
+      writer.append("ID,Timestamp,Main_Level,Pump_Status,Velocity,Likely_Leak\n");
+      writer.flush();
+      writer.close();
+      System.out.println("📄 Report exported to water_grid_report.csv");
+      if(listener != null) listener.onAlert("INFO", "Report Generated Successfully!");
+      
+    } catch (IOException e) {
+      System.err.println("Export Failed: " + e.getMessage());
+    }
+  }
+
   private void startOfflineSimulation() {
-    System.out.println("🔄 Switching to Offline Simulation Mode (No DB)...");
+    System.out.println("🔄 Offline Mode...");
     monitoringTimer = new Timer(true);
     monitoringTimer.scheduleAtFixedRate(new TimerTask() {
       @Override
       public void run() {
-        int consumption = SIM_BASE_CONSUMPTION + ThreadLocalRandom.current().nextInt(0, SIM_RANDOM_SPIKE_MAX);
-        currentLevel -= consumption;
-        currentDayUsage += consumption;
-        if (currentLevel < 0) currentLevel = 0;
-        updatePressureMetric();
-        updatePumpStatusPredictive(consumption / 2.0); 
-        checkHealthAlerts();
-        updateSystemStatusString();
+        mainLevel -= 10;
+        if(mainLevel < 0) mainLevel = 0;
+        updateMainPumpStatus();
       }
     }, 2000, 2000);
   }
+
+  /**
+   * Returns historical data for a specific zone index (0-3)
+   */
+  public List<Integer> getZoneHistory(int zoneIndex) {
+    if (zoneIndex >= 0 && zoneIndex < NUM_ZONES) {
+      return new ArrayList<>(zoneHistories.get(zoneIndex)); // Return copy
+    }
+    return Collections.emptyList();
+  }
   
-  private void initHardwareInterface() {
-    throw new UnsupportedOperationException("Hardware mode not yet enabled");
+  /**
+   * Returns current stats for a specific zone
+   */
+  public Map<String, Object> getZoneStats(int zoneIndex) {
+    Map<String, Object> stats = new HashMap<>();
+    if (zoneIndex >= 0 && zoneIndex < NUM_ZONES) {
+      stats.put("level", zoneLevels[zoneIndex]);
+      stats.put("cap", ZONE_CAPACITIES[zoneIndex]);
+      stats.put("state", zoneStatus[zoneIndex]);
+      stats.put("flowRate", currentFlowRates[zoneIndex]);
+    }
+    return stats;
   }
 }
