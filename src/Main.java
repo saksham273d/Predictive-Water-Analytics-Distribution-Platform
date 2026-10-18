@@ -1,6 +1,7 @@
 import backend.*;
 import java.awt.*;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -13,7 +14,7 @@ import javax.swing.border.EmptyBorder;
  */
 public class Main extends JFrame implements AlertListener {
 
-  private BackendConnector backend;
+  private final BackendConnector backend;
   private JPanel mainContainer;
   private Timer refreshTimer;
 
@@ -33,10 +34,13 @@ public class Main extends JFrame implements AlertListener {
     setLocationRelativeTo(null);
 
     backend = new RealBackendConnector();
-    backend.setAlertListener(this);
 
     initUI();
     startRefreshLoop();
+  }
+
+  public void attachAlertListener() {
+    backend.setAlertListener(this);
   }
 
   private void initUI() {
@@ -158,20 +162,44 @@ public class Main extends JFrame implements AlertListener {
     lblVal.setForeground(accent);
     lblVal.setHorizontalAlignment(SwingConstants.CENTER);
 
-    if (label.equals("TANK LEVEL")) lblLevelValue = lblVal;
-    else if (label.equals("PUMP STATUS")) lblPumpStatus = lblVal;
-    else if (label.equals("SYS HEALTH")) lblHealthValue = lblVal;
-    else if (label.equals("WARNINGS") || label.equals("ACTIVE ALERTS")) lblAlertsValue = lblVal;
+    switch (label) {
+      case "TANK LEVEL" -> lblLevelValue = lblVal;
+      case "PUMP STATUS" -> lblPumpStatus = lblVal;
+      case "SYS HEALTH" -> lblHealthValue = lblVal;
+      case "WARNINGS", "ACTIVE ALERTS" -> lblAlertsValue = lblVal;
+      default -> {
+      }
+    }
 
     card.add(lblTitle, BorderLayout.NORTH);
     card.add(lblVal, BorderLayout.CENTER);
     return card;
   }
 
+  private List<Map<String, Object>> getZonesFromStatus(Map<String, Object> status) {
+    Object zonesObj = status.get("zones");
+    if (!(zonesObj instanceof List<?> zonesList)) {
+      return new ArrayList<>();
+    }
+
+    List<Map<String, Object>> zones = new ArrayList<>();
+    for (Object zoneObj : zonesList) {
+      if (zoneObj instanceof Map<?, ?> rawZone) {
+        Map<String, Object> zoneMap = new HashMap<>();
+        for (Map.Entry<?, ?> entry : rawZone.entrySet()) {
+          if (entry.getKey() instanceof String key) {
+            zoneMap.put(key, entry.getValue());
+          }
+        }
+        zones.add(zoneMap);
+      }
+    }
+    return zones;
+  }
+
   private JComponent createGridVisualizer() {
     JPanel gridPanel = new JPanel() {
-      private List<Point> particles = new ArrayList<>();
-      private Random rand = new Random();
+      private final Random rand = new Random();
 
       @Override
       protected void paintComponent(Graphics g) {
@@ -192,7 +220,7 @@ public class Main extends JFrame implements AlertListener {
         Map<String, Object> status = backend.getCurrentStatus();
         int mainLevel = (Integer) status.get("mainLevel");
         boolean pumpOn = (Boolean) status.getOrDefault("pumpActive", false);
-        List<Map<String, Object>> zones = (List<Map<String, Object>>) status.get("zones");
+        List<Map<String, Object>> zones = getZonesFromStatus(status);
         
         g2.setStroke(new BasicStroke(4));
         
@@ -364,7 +392,7 @@ public class Main extends JFrame implements AlertListener {
   }
   
   class LiveChartPanel extends JPanel {
-    private List<Integer> historyData = new ArrayList<>();
+    private final List<Integer> historyData = new ArrayList<>();
     private static final int MAX_POINTS = 50;
 
     public LiveChartPanel() {
@@ -521,11 +549,12 @@ public class Main extends JFrame implements AlertListener {
         UIManager.setLookAndFeel("javax.swing.plaf.metal.MetalLookAndFeel");
         UIManager.put("Panel.background", new Color(15, 20, 35));
         UIManager.put("Label.foreground", Color.WHITE);
-      } catch (Exception e) {
-        e.printStackTrace();
+      } catch (ClassNotFoundException | InstantiationException | IllegalAccessException | UnsupportedLookAndFeelException e) {
+        System.err.println("Unable to set look and feel: " + e.getMessage());
       }
 
       Main app = new Main();
+      app.attachAlertListener();
       app.setVisible(true);
     });
   }

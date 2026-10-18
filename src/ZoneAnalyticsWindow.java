@@ -10,7 +10,7 @@ import javax.swing.*;
  */
 public class ZoneAnalyticsWindow extends JFrame {
   
-  private RealBackendConnector realBackend; 
+  private final RealBackendConnector realBackend; 
   private JComboBox<String> zoneSelector;
   private ChartPanel chartPanel;
   private JLabel lblCurrentLevel;
@@ -76,12 +76,10 @@ public class ZoneAnalyticsWindow extends JFrame {
     lblCurrentLevel.setText(level + " / 2000 L");
     lblStatus.setText(state);
     
-    if ("LEAK".equals(state)) {
-      lblStatus.setForeground(Color.RED);
-    } else if ("LOW LEVEL".equals(state)) {
-      lblStatus.setForeground(Color.ORANGE);
-    } else {
-      lblStatus.setForeground(Color.GREEN);
+    switch (state) {
+      case "LEAK" -> lblStatus.setForeground(Color.RED);
+      case "LOW LEVEL" -> lblStatus.setForeground(Color.ORANGE);
+      default -> lblStatus.setForeground(Color.GREEN);
     }
     
     chartPanel.setZoneIndex(selectedIndex);

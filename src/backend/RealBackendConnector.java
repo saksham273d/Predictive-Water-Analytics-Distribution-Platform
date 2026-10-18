@@ -152,7 +152,7 @@ public class RealBackendConnector implements BackendConnector {
     checkAlerts();
   }
 
-  private void simulateConsumption(double dt) {
+  private void simulateConsumption(@SuppressWarnings("unused") double dt) {
     for (int i = 0; i < NUM_ZONES; i++) {
       if (zoneLevels[i] > 0) {
         int usage = 5 + ThreadLocalRandom.current().nextInt(0, 6); // Slow drain for visibility
@@ -221,7 +221,7 @@ public class RealBackendConnector implements BackendConnector {
     if (mainLevel < 0) mainLevel = 0;
   }
 
-  private void analyzeHealth(double dt) {
+  private void analyzeHealth(@SuppressWarnings("unused") double dt) {
     alertCount = 0;
     double score = 100.0;
 
