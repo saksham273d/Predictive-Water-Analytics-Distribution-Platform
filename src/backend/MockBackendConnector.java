@@ -2,13 +2,19 @@ package backend;
 
 import java.util.*;
 
+/**
+ * Fallback Connector for UI Testing without Database or Hardware Sensors.
+ * Generates synthetic data to validate Dashboard rendering and Alert flows.
+ */
 public class MockBackendConnector implements BackendConnector {
+  
   private AlertListener listener;
   private int mockLevel = 7500;
   private final Random random = new Random();
   private final Timer timer = new Timer(true);
 
   public MockBackendConnector() {
+    // Simulate water drain every 10 seconds
     timer.scheduleAtFixedRate(new TimerTask() {
       @Override
       public void run() {
@@ -41,6 +47,8 @@ public class MockBackendConnector implements BackendConnector {
   public List<Map<String, Object>> getHistory(int hours) {
     List<Map<String, Object>> history = new ArrayList<>();
     long now = System.currentTimeMillis();
+    
+    // Generate dummy historical data points backwards from current time
     for (int i = hours; i >= 0; i--) {
       Map<String, Object> reading = new HashMap<>();
       reading.put("timestamp", now - (i * 3600000L));
@@ -51,8 +59,12 @@ public class MockBackendConnector implements BackendConnector {
   }
 
   @Override
-  public void setAlertListener(AlertListener l) { this.listener = l; }
+  public void setAlertListener(AlertListener l) { 
+    this.listener = l; 
+  }
 
   @Override
-  public boolean sendCommand(String command) { return true; }
+  public boolean sendCommand(String command) { 
+    return true; 
+  }
 }

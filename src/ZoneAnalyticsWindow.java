@@ -21,7 +21,7 @@ public class ZoneAnalyticsWindow extends JFrame {
     super("📊 Zone-Specific Analytics");
     this.realBackend = connector;
     
-    setSize(900, 650); // Slightly bigger for better readability
+    setSize(900, 650); 
     setLocationRelativeTo(null);
     setDefaultCloseOperation(DISPOSE_ON_CLOSE);
     setLayout(new BorderLayout());
@@ -31,7 +31,6 @@ public class ZoneAnalyticsWindow extends JFrame {
   }
 
   private void initUI() {
-    // Top Panel: Selector & Stats
     JPanel topPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 20, 10));
     topPanel.setBackground(new Color(20, 25, 40));
     
@@ -59,25 +58,21 @@ public class ZoneAnalyticsWindow extends JFrame {
     
     add(topPanel, BorderLayout.NORTH);
 
-    // Center Panel: The Graph
     chartPanel = new ChartPanel();
     JScrollPane scrollPane = new JScrollPane(chartPanel);
     scrollPane.setBorder(null);
     add(scrollPane, BorderLayout.CENTER);
     
-    // Initial Load
     updateDisplay();
   }
 
   private void updateDisplay() {
     int selectedIndex = zoneSelector.getSelectedIndex();
     
-    // Fetch Stats from Backend
     Map<String, Object> stats = realBackend.getZoneStats(selectedIndex);
     int level = (Integer) stats.getOrDefault("level", 0);
     String state = (String) stats.getOrDefault("state", "UNKNOWN");
     
-    // Update Labels
     lblCurrentLevel.setText(level + " / 2000 L");
     lblStatus.setText(state);
     
@@ -89,7 +84,6 @@ public class ZoneAnalyticsWindow extends JFrame {
       lblStatus.setForeground(Color.GREEN);
     }
     
-    // Trigger Graph Repaint
     chartPanel.setZoneIndex(selectedIndex);
     chartPanel.repaint();
   }
@@ -112,7 +106,7 @@ public class ZoneAnalyticsWindow extends JFrame {
    */
   class ChartPanel extends JPanel {
     private int currentZoneIdx = 0;
-    private static final int MAX_Y_VALUE = 2000; // Fixed scale for consistency
+    private static final double MAX_Y_VALUE = 2000.0; // Fixed scale for consistency
 
     public void setZoneIndex(int idx) {
       this.currentZoneIdx = idx;
@@ -127,7 +121,7 @@ public class ZoneAnalyticsWindow extends JFrame {
       int w = getWidth();
       int h = getHeight();
       
-      // Padding
+      // Layout Padding
       int leftPad = 60; 
       int bottomPad = 40;
       int rightPad = 20;
@@ -145,12 +139,9 @@ public class ZoneAnalyticsWindow extends JFrame {
       g2.setFont(new Font("Arial", Font.BOLD, 16));
       g2.drawString("Water Level Trend - " + zoneSelector.getSelectedItem(), leftPad, 25);
 
-      // Get Data
+      // Fetch Data
       List<Integer> history = realBackend.getZoneHistory(currentZoneIdx);
       
-      // DEBUG PRINT TO CONSOLE
-      System.out.println("UI Draw: Zone " + currentZoneIdx + " | Points: " + (history != null ? history.size() : 0));
-
       if (history == null || history.isEmpty()) {
         g2.setColor(Color.GRAY);
         g2.drawString("Waiting for data...", w/2 - 50, h/2);
@@ -159,36 +150,30 @@ public class ZoneAnalyticsWindow extends JFrame {
       
       // --- DRAW GRID & AXES ---
       
-      // Y-Axis Line
+      // Axis Lines
       g2.setColor(new Color(80, 80, 100));
       g2.setStroke(new BasicStroke(2));
       g2.drawLine(leftPad, topPad, leftPad, h - bottomPad);
-      
-      // X-Axis Line
       g2.drawLine(leftPad, h - bottomPad, w - rightPad, h - bottomPad);
       
-      // Y-Axis Labels (Numbers) & Horizontal Grid Lines
+      // Y-Axis Labels & Horizontal Grids
       g2.setFont(new Font("Monospaced", Font.PLAIN, 12));
       g2.setColor(new Color(150, 150, 170));
       
-      // Fixed Scale: 0 to 2000 Liters
-      double maxYVal = 2000.0; 
-
       for (int i = 0; i <= 4; i++) {
-        int val = i * 500; // 0, 500, 1000...
-        double percent = val / maxYVal;
+        int val = i * 500; 
+        double percent = val / MAX_Y_VALUE;
         int y = (h - bottomPad) - (int)(percent * chartH);
         
-        // Draw Label
         String label = String.valueOf(val);
         FontMetrics fm = g2.getFontMetrics();
         g2.drawString(label, leftPad - fm.stringWidth(label) - 10, y + 5);
         
-        // Draw Horizontal Grid Line
         if (i > 0) { 
            g2.setColor(new Color(40, 45, 60));
            g2.setStroke(new BasicStroke(1));
            g2.drawLine(leftPad, y, w - rightPad, y);
+           g2.setColor(new Color(150, 150, 170)); // Reset color for next label
         }
       }
       
@@ -199,15 +184,14 @@ public class ZoneAnalyticsWindow extends JFrame {
       
       // --- PLOT THE DATA LINE ---
       
-      g2.setColor(new Color(0, 210, 255)); // Bright Cyan
+      g2.setColor(new Color(0, 210, 255)); 
       g2.setStroke(new BasicStroke(3));
       
       int maxPoints = history.size();
       
-      // Calculate Scaling Factors
-      // If we have fewer points than screen width, spread them out nicely
+      // Scaling Factors
       double scaleX = (maxPoints > 1) ? ((double) chartW / (maxPoints - 1)) : 0;
-      double scaleY = chartH / maxYVal;
+      double scaleY = chartH / MAX_Y_VALUE;
       
       int prevX = -1;
       int prevY = -1;
@@ -215,8 +199,8 @@ public class ZoneAnalyticsWindow extends JFrame {
       for (int i = 0; i < maxPoints; i++) {
         int val = history.get(i);
         
-        // Clamp value visually just in case
-        if (val > maxYVal) val = (int) maxYVal;
+        // Clamp value visually
+        if (val > MAX_Y_VALUE) val = (int) MAX_Y_VALUE;
         if (val < 0) val = 0;
         
         int x = leftPad + (int)(i * scaleX);
@@ -226,11 +210,11 @@ public class ZoneAnalyticsWindow extends JFrame {
           g2.drawLine(prevX, prevY, x, y);
         }
         
-        // Draw Point Dot (Make it bigger for visibility)
+        // Draw Point Dot with White Border
         g2.fillOval(x-4, y-4, 8, 8);
         g2.setColor(Color.WHITE);
-        g2.drawOval(x-4, y-4, 8, 8); // White border on dot
-        g2.setColor(new Color(0, 210, 255)); // Reset color
+        g2.drawOval(x-4, y-4, 8, 8); 
+        g2.setColor(new Color(0, 210, 255)); 
         
         prevX = x;
         prevY = y;
