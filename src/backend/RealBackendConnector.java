@@ -181,7 +181,7 @@ public class RealBackendConnector implements BackendConnector {
         
         // HIGH USAGE RATE: 30-60 Liters per tick (2 seconds)
         // This ensures visible movement on screen within 5-10 seconds
-        int usage = 30 + ThreadLocalRandom.current().nextInt(0, 30); 
+        int usage = 5 + ThreadLocalRandom.current().nextInt(0, 6); 
         
         zoneLevels[i] -= usage;
         
